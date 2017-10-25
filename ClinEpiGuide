@@ -1,0 +1,1096 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+  urlcolor: blue
+---
+```{r Libraries for knitting, include=FALSE}
+
+library(tidyverse)
+library(gmodels)
+library(lmtest)
+library(survival)
+library(epiR)
+library(Epi)
+library(lme4)
+library(popEpi)
+```
+
+```{r, include=FALSE}
+library(knitr)
+opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=TRUE)
+```
+
+---
+title: "Learning R for Clinical Epidemiologists (v0.1)"
+subtitle: <h1>Or How I learnt to move on from STATA</h1>
+
+author:  |
+ | "[Michael Marks - London School of Hygiene & Tropical Medicine](https://www.lshtm.ac.uk/aboutus/people/marks.michael)"
+ | "[I'm on Twitter](https://twitter.com/dr_michaelmarks)"
+
+urlcolor: blue
+date: "`r format(Sys.time(), '%d %B %Y')`"
+
+output:
+  pdf_document
+---
+
+#Introduction
+R is a powerful, free and open-source piece of software for statistical analysis.
+
+Unfortunately my experience of trying to learn R has been that materials are not always provided in a format that addresses the everyday problems of clinical epidemiology.
+
+The aim of this guide is to teach some basic R skills so that you can
+a) Load, Clean and manipulate a dataset
+b) Do some descriptive statistics and basic statistical tests
+c) Do logistic regression
+d) Do poisson & cox regression
+e) Correlated outcomes
+f) Matched case-control data
+
+We will use real datasets as we go along.
+
+Brodly the material here aims to show you how to do most of the analysis approaches one might learn in the LSHTM MSc modules Statistical Methods in Epidemiology & Advanced Statistical Methods in Epidemiology (or equivalent) in R. 
+
+Not everything is done identically but the key elements should come out!
+
+#Important Caveat
+The aim of this guide not to teach you statistics.
+I assume that you know what tests are appropriate in which situations.
+The aim is to show how these tests can be implemented in R and give an output with which a clinical epidemiologist is familiar.
+
+#Setting up R
+
+A key point in R is that (unlike STATA) many of the analaysis tools need to be specifically loaded in to the software. 
+
+Think of these as modules designed for specific tasks. 
+Each module is called a package. The strength of R is the wide variety of packages to address a huge range of analysis approaches. 
+It can make R frustrating though as there can be multiple ways to approach the same problem.
+
+The approaches and packages used here are ones I learn and felt comfortable with - there may be better ways to do things using other packages.
+
+#R Studio
+I always use R within "[R-Studio](https://www.rstudio.com/)".
+When you open R Studio it opens R but just makes the layout nicer - more like STATa with boxes for current code, datasets, plots etc.
+
+##Installing Packages
+The first time you setup R you need to install the packages
+
+The syntax is: 
+>   install("packagename") #NB Note use of ""
+
+For example
+
+```{r Installing Libraries for R, eval=FALSE, include=TRUE}
+
+install.packages("tidyverse") 
+#tidyverse is a useful set of data manipulation and graphics tools 
+install.packages("gmodels") 
+#for good generalised linear models 
+install.packages("lmtest") 
+#for doing likelihood ratio tests between models 
+install.packages("epiR") 
+#Some useful epitools especially 2*2 tables and stratified MH Odds
+install.packages("Epi") 
+#Tools for Lexis Models
+install.packages("popEpi")
+#Extra tools to go with 'Epi' and make nice rate tables
+install.packages("survival") 
+#for survial analysis, kaplan-meier plots and cox regression
+install.packages("lme4")
+#For fitting random-effects models
+```
+
+##Loading Packages
+Once the packags are installed in R you need to load them so they can be used.
+This step 'loading' needs to be done each time you start R.
+The syntax is: 
+>   library(packagename) #NB Note no use of ""
+
+```{r Loading Libraries for R, eval=FALSE, include=TRUE}
+
+library(tidyverse)
+library(gmodels)
+library(lmtest)
+library(survival)
+library(epiR)
+library(Epi)
+library(lme4)
+library(popEpi)
+```
+
+
+##Setting a working directory
+You should set a working directory - this tells R where any files you might be looking for can be found without you needing to write the full file path
+
+The syntax is: 
+> setwd("directory_where_the_files_are") 
+
+```{r Working Directory, eval=FALSE, include=TRUE}
+
+setwd("~/Dropbox/Work/EPI/Learning R/")
+
+```
+
+**If you plan to try the analyses below then you need to set your own working directory and put the dataset files inside that directory**
+
+**From this point on all the code should work if everything is in the same directory**
+
+##A few generic comments on how R holds and stores data
+1) Each dataset has a name
+2) Each variable within a dataset has a name
+3) In general when referencing a variable we need to give the dataset name too, because we might have more than one dataset
+i.e
+> mosquito$species
+
+Refers to the species variable within the mosquito dataset
+
+In general in R we put the output of whatever we do into a new object for storage.
+For example in STATA we might just say
+> logistic died i.agegroup
+
+This would run the logistic regression and give an output straight away
+
+But in R we would say
+> model <- glm(died~factor(agegroup), family="binomial", data = mosquito)
+
+This would run the logistic regression and save it in a dataset called model
+
+The syntax for any procedure where we save data to a place is
+name_of_place_I_am_saving <- thing_I_am_saving_to_this_object
+
+or if saving to a new or existing variable in a dataset
+my_dataset$variable_name <- thing_I_am_saving_to_that_variable
+
+A key point in R is the ability to have multiple separate datasets available at anyone time - unlike STATA for example where only a single dataset can be available.
+
+#Annotating code
+Just like in STATA we can annotate our code
+If we put a # symbol at the start of a line then R will treat that as annotation
+
+> some code here 
+#This code is doing something important
+
+# Load a datset
+
+##Loading Data
+Next we want to be able to load in a dataset.
+For the purpose of this tutotial I presume that most of the datasets you will be using are .csv files
+
+The generic syntax is:
+> name_of_data <- read.csv( file = "filename.csv", header = TRUE, sep = ",")
+
+Header = True: Top Row is variable names
+sep = ",": This is comma delimited data
+
+We can see the loaded data with
+> View(name_of_data)
+
+##Referring to subsets of data
+We can reference a subset of a dataset based on the values of a specific variable
+
+The syntax is
+> [data$variable == something]
+
+For example:
+
+```{r Subsetting, eval=FALSE, include=TRUE}
+
+[survey$gender == "male"]
+#This would apply our rule only to valus where gender = male
+
+mean(scabies$age[scabies$gender == "male"])
+#This would work out the mean age of thos individuals where gender is male.
+
+```
+
+Rerefencing a subset of data is obviously valuable for making new variables basd on existing values, plotting data and performing statistical tests.
+
+##Sample Dataset 1
+We are going to work with a dataset from a cross-sectional survey on scabies
+The dataset is available online. If the CSV is within your current working directory then the code below will work: 
+
+```{r Loading a dataset, echo=TRUE}
+scabies <- read.csv(file = "DoctorDCFV3_results.csv", header = TRUE, sep = ",")
+#Remember we set the working directory already. As the file is inside that directory we can just give the file name.
+
+#We can see the data with: View(scabies)
+```
+
+#Clean and manipulate a dataset
+
+In general we can either alter an existing variable OR make a new variable by manipulating an old one.
+
+The syntax for altering an existing variable is:
+> data$variable <- thing_we_want_do
+
+The syntax for making a new variable is the same:
+> data$new_variable <- thing_we_want_new_variable_to_be
+
+##Discarding unwanted Variables
+If we want to get rid of some variable we don't need we can do this with select.
+The general syntax is
+> data <- select(data, -VAR_C) #Drop these vars
+
+```{r Dropping Variables, echo=TRUE}
+
+scabies <- select(scabies, -Face.Scalp, -Torso, -Upper.Arm, -Lower.Arm, -Hand, -Feet, -Buttock.Groin, -Upper.Leg, -Lower.Leg)
+
+```
+
+##Discarding unwanted Rows
+We can also get rid of rows of data we don't need.
+The general syntax is
+> data <- filter(data, how_to_filter)
+
+```{r Dropping Unwated Rows, echo=TRUE}
+scabies <- filter(scabies, Village !="Buni")
+#Keep rows where the village name is not Buni
+```
+
+##Generating 'n' by groups
+Sometimes we have multiple rows per an individual/group and want to number these.
+This is equivalent to STATA bysort VAR: gen n=_n
+
+The general syntax is:
+> dataset$n <- ave(1:length(dataset$grouping_var), dataset$grouping_var, FUN = seq_along)
+
+##Reshape Data
+We want to be able to turn dataframes wide>long and long>wide
+
+Reshaping long is called 'gather'
+Reshaping wide is called 'spread'
+
+
+##Turning continuous into categorical variables
+We often want to group continuous variables like age into groups
+We can do this by "cutting" the variable.
+We need to tell R the new variable is a categorical/factor variable
+
+The generic syntax is:
+> data$variable <- as.factor(cut(data$variable,c(cut_here,cut_here,cut_here))
+
+```{r Turning continuous into categorical variables, echo=TRUE}
+scabies$agegroups <- as.factor(cut(scabies$age, c(-1,10,20,max(scabies$age)), labels = c("0-10","11-20","21+"))) 
+#Make a new variable called age group. Do this by splitting people based on the age variable and splitting it in to groups 0>10, 10>20, 20>100
+
+
+scabies$house_cat <- as.factor(cut(scabies$house_inhabitants, c(0,5,10,max(scabies$house_inhabitants)), labels = c("0-5","6-10","10+")))
+#Make a new variable of the house size.
+#Check this looks correct
+
+table(scabies$house_cat, scabies$house_inhabitants)
+```
+
+##Setting a baseline group for categorical variables
+
+When we have a categorical variable it is key we no which value R uses as the refrence - for example when doing logistic regression.
+
+We can set this with the 'relevel' function
+
+```{r Setting a baseline group for categorical variables, echo=TRUE}
+scabies$house_cat <- relevel(scabies$house_cat, ref = "0-5")
+#Make 0-5 household size the baseline group
+
+scabies$agegroups <-relevel(scabies$agegroups, ref = "21+")
+#Make age 21+ the baseline group
+```
+
+
+##Working with dates
+
+Sometime when dates are imported from a file R doesn't realise it is a date as opposed to just a string of characters. We can check this easily.
+
+```{r Checking how a date is stored, echo=TRUE}
+
+class(scabies$survey_date)
+#We see that R currently thinks every date is a different categorical variabl which is not very helpful
+```
+
+
+We can convert strings of characters stored as dates into an 'R' date (which in the background is stored as a numberic value (days since 1970)).
+
+The general syntax is:
+> data$date <- as.Date(data$date, format = "")
+
+There are a range of values for format. Common ones include
+%a - Abbreviated weekday: Mon
+%A - Full weekday: Monday
+%b - Abbreviated month: Nov
+%B - Full Month: November
+%d - Day of the month: 01
+%m - Month: 07
+%y - Two digit year: 98
+%Y - Four digit year
+
+So given 2017-01-24 you might write
+format = "%Y-%m-%d"
+
+If you need to turn the 'R' date into a strict number (for some calculations) you can simply specify:
+> data$date <- as.numeric(as.Date(data$date, format = ""))
+
+```{r Dates, echo=TRUE}
+
+#We can turn it in to a date
+scabies$survey_date <- as.Date(scabies$survey_date, format = "%d-%m-%y")
+class(scabies$survey_date)
+#We see that R now recognises this as a date variable.
+```
+
+#Descriptive and basic statistics
+
+We should do some exploratory basic analyses before we proceed to more complex regression analysis
+
+##Means etc
+We might want to get a mean, median and maximum tc
+For a single variable we can use 'summary'
+
+```{r Means, Medians, IQR, echo=TRUE}
+summary(scabies$age)
+
+#Or just
+
+mean(scabies$age)
+```
+
+##Means by groups/catgories
+If we want to summarise by a categorical variable we can do this nicely using stat.table
+The general syntax is:
+
+> stat.table(grouping_factor/s, statistics_to_show, dataset)
+
+```{r Summaries by categories, echo=TRUE}
+
+stat.table(gender,mean(age), data = scabies)
+#Tabulate, by gender, the mean age from the scabies dataset
+
+stat.table(gender,list(mean(age),median(age)), data = scabies)
+#Tabulate, by gender, the mean and median age from the scabies dataset
+```
+
+
+##T-Test
+We might want to know if the mean of a value like age varies between two groups.
+
+```{r T-test, echo=TRUE}
+t.test(scabies$age[scabies$gender=="male"],scabies$age[scabies$gender=="female"])
+
+```
+This presents the mean age of each group, the 95% confidence interval for the difference and the p-value. We can see that the groups do have different mean ages.
+
+##Confidence intervals of a proportion (and a p-value)
+
+> prop.test(numerator,denominator)
+
+##Cross_Tabs, Chi Square Tests and Mantel-haenszel odds ratio
+We might want to tabulate catergorical variables
+
+> table(data$dependent$variable, data$independent_variable)
+
+```{r Cross-Tabulate, echo=TRUE}
+table(impetigo = scabies$impetigo_active, scabies = scabies$scabies_infestation)
+#Simple table
+
+```
+
+We might want to do a chi-square and calculate an odds ratio 
+
+> epi.2by2(table(data$dependent_variable, data$independent_variable))
+
+```{r 2*2 contingency-table, echo=TRUE}
+epi.2by2(table(scabies$impetigo_active, scabies$scabies_infestation))
+```
+Notice this gives you counts, an odds ratio and a chi-square result.
+Effctively this command combines elements of the STATA commands: mhodds and tab,chi
+
+##Stratified MH Odds Ratios for Confounding
+We can also stratify our odds ratio by a third variable to look for confounding
+
+> epi.2by2(table(data$dependentvariable, data$idependentvariable, data$stratificationvariable))
+
+```{r Stratified 2*2 contingency-table, echo=TRUE}
+epi.2by2(table(scabies$impetigo_active, scabies$scabies_infestation, scabies$gender))
+```
+The output gives us the crude odds ratio (identical to the one we got without the stratification variable) and then an adjusted odds ratio. We can look at these two for evidence of confounding.
+
+We can get (if we desire) the stratum specific odds ratios out
+
+```{r stratum specific odds ratios, echo=TRUE}
+stratum <- epi.2by2(table(scabies$impetigo_active, scabies$scabies_infestation, scabies$gender)) #Note this time I'm saving the 2*2 table
+stratum
+summary(stratum)$OR.strata.wald
+```
+
+#Basic plots 
+
+The basic R software can make nice plots.
+The introduction below is really only an outline. 
+Later we will introduce the specific GGPLOT2 package which makes really nice graphs.
+
+**You may well want to ignore this section and just learn how to make GGPLOT graphs as they are much nicer!**
+
+##Histogram
+We can do some simple plots to look at distributions such as a histogram
+The general syntax is 
+> hist(data$variable)
+
+```{r Basic Histrogram, echo=TRUE}
+
+hist(scabies$age)
+```
+
+##Scatterplot
+We could do a basic scatter plot of house size vs number of people in a room
+
+```{r Basic Scatter, echo=TRUE}
+
+plot(scabies$house_inhabitants,scabies$room_cohabitation)
+```
+
+##Colour Scatter 
+We might make this look nicer by adding some colours representing key variables
+```{r Colour Scatter, echo=TRUE}
+scabies$scatter_colour[scabies$scabies_infestation == 1] <- "red" 
+#If scabies_infestation is 0 then the colour is red
+
+scabies$scatter_colour[scabies$scabies_infestation == 0] <- "blue"
+#If scabies_infestation is 0 then the colour is blue
+
+plot(scabies$house_inhabitants,scabies$room_cohabitation, col = scabies$scatter_colour)
+#For each value look in the variable scatter_colours and work out what colour to make each person
+```
+
+Lots of the points overlap so we can always make jitter them 
+```{r Jitter Colour Scatter, echo=TRUE}
+plot(jitter(scabies$house_inhabitants),scabies$room_cohabitation, col = scabies$scatter_colour)
+```
+
+Later we will come back to GGPLOT2 which makes much nicer graphs!
+
+
+#Logistic Regression
+
+We can perform logistic regression in a straightforward fashion in.
+The formula for any logistic regression is
+
+> logistic_model <- glm(dependent_variable~indepdent_variable+independent_variable, data = dataframe, family = binomial)
+
+If we want to include a variable as a Factor then we state that by saying
+> factor(independent_variable)
+
+> logistic_model <- glm(dependent_variable~factor(indepdent_variable), data = dataframe, family = binomial)
+
+Unlike in STATA this does not automatically generate an output. 
+As a clinical epidemiologist we want a table with the odds ratio, co-efficients, standard errors, confidence interval and the Wald-test P-Value.
+
+We get the Odds ratios and Confidence intervals by taking the exponential of the output from the logistic regression model
+
+> logistic_model_OR <- cbind(OR = exp(coef(logistic_model)), exp(confint(logistic_model)))
+
+Then we need to combine the Odds ratios and CI values with the raw coefficients and p-values into a single table
+
+> logistic_model_summary <- summary(logistic_model)
+> logistic_model_summary <- cbind(logistic_model_OR, logistic_model_summary)
+
+We can display then display the complte table of the output
+
+> logistic_model_summary
+
+##An example of logistic regression
+Here we will see if the size of the household is associated with risk of scabies (variable = house_cat), after controlling for age (categorised) and gender.
+```{r Logistic Regression, echo=TRUE}
+
+scabiesrisk <- glm(scabies_infestation~factor(agegroups)+factor(gender)+factor(house_cat),data=scabies,family=binomial())
+scabiesrisk_OR <- exp(cbind(OR= coef(scabiesrisk), confint(scabiesrisk)))
+scabiesrisk_summary <- summary(scabiesrisk)
+scabiesrisk_summary <- cbind(scabiesrisk_OR, scabiesrisk_summary$coefficients)
+scabiesrisk_summary
+
+```
+
+The output gives us the OR associated with each variable, the 95% CI of that OR, and a Wald-Test P-Value for each variable
+
+##Trying a logistic regression for yourself
+Investigate using logistic regression whether having impetigo (impetigo_odds) is associated with scabies (scabies_infestation) after controlling for age (agegroups) and sex (gender).
+
+```{r Trying your own Logistic Regression, echo=FALSE}
+
+impetigorisk <- glm(impetigo_active~factor(scabies_infestation)+factor(agegroups)+factor(gender),data=scabies,family=binomial())
+impetigorisk_OR <- exp(cbind(OR= coef(impetigorisk), confint(impetigorisk)))
+impetigorisk_summary <- summary(impetigorisk)
+impetigorisk_summary <- cbind(impetigorisk_OR, impetigorisk_summary$coefficients)
+impetigorisk_summary
+
+```
+
+You should get a table showing an Odds Ration of 2 - i.e the odds of impetigo are twice as high in people with scabies. The p-value suggests this is a highly significant finding.
+
+
+##Comparing two models via a Likelihood Ratio Test
+We might want to compare two models to see if overall the factor variable house_cat (size of the house) is significant after controlling for other variables (as opposed to the individual Wald tests for specific values of house_cat). 
+
+As in STATA we simply run the model without the Variable we are interested in and do a Likelihood Ratio test
+
+```{r Logistic Regression - Likelihood Ratio, echo=TRUE}
+
+scabiesrisk2 <- glm(scabies_infestation~factor(agegroups)+factor(gender),data=scabies,family=binomial())
+#We could have got out all the results of this new model just like we did for the initial Logistic Regression but for the purpose of this demonstration we don't need to
+lrtest(scabiesrisk,scabiesrisk2)
+
+```
+
+We se that overall there is borderline significance between household size and scabies risk. This makes sense if we look at the Wald-Test for each category as one house size category was associated and one was not.
+
+##Fiting an interaction term
+We can easily fit an interaction term to our model.
+The general syntax is
+
+> interaction_model <- glm(dependent_variable~indepdent_variable*independent_variable, data = dataframe family = binomial)
+
+```{r Logistic Regression - Interaction Term, echo=TRUE}
+
+scabiesrisk3 <- glm(scabies_infestation~factor(agegroups)*factor(gender),data=scabies,family=binomial())
+scabiesrisk3_OR <- exp(cbind(OR= coef(scabiesrisk3), confint(scabiesrisk3)))
+scabiesrisk3_summary <- summary(scabiesrisk3)
+scabiesrisk3_summary <- cbind(scabiesrisk3_OR, scabiesrisk3_summary$coefficients)
+scabiesrisk3_summary
+
+```
+
+The output givs us 
+1) The Odds Ratio of each factor in the interaction in the baseline group of the other factor: i.e odds ratio for scabies, amongst people aged 0-10 compared to those aged 21+ (the reference group for age) in the baseline group of gender (female)
+2) The interaction terms 
+
+As in STATA we can then compare the model with and without the interaction term using a likelihood ratio test to see if the interaction is statistically significant.
+
+```{r Logistic Regression - Testing Interaction Term, echo=TRUE}
+
+#Compare our model containing age & gender (scabiesrisk2) without an interaction term to our third model (scabiesrisk3) which does have an interaction term between age and gender
+lrtest(scabiesrisk2,scabiesrisk3)
+
+```
+
+Remember the null-hypothesis = No interaction.
+So here the P-value suggests no evidence against the null; so we should not fit this interaction term.
+
+#Matched Case-Control Data
+
+##Conditional Logistic Regression
+For individually matched case control studies we use Conditional Logistic Regression not normal logistic regression
+
+The syntax for this is:
+
+> conditional_model <- clogit(variable_denoting)or_control~indepdent_variable+independent_variable+strata(matching_var), data = dataframe)
+
+Where 'matching_var' is a variable saying which Case is matched to which Control
+
+We get the ORs, 95% CIs and everything else exactly the same as for logistic regression.
+
+
+```{r Example of Conditional Logistic Regression Code, eval=FALSE, include=TRUE}
+
+> conditional <- clogit(case~independent_variable+strata(matching_var), data = dataframe)
+> conditional_OR <- exp(cbind(OR= coef(conditional), confint(conditional)))
+> conditional_summary <- summary(conditional)
+> conditional_summary <- cbind(conditional_OR, conditional_summary$coefficients)
+> conditional_summary
+
+```
+
+Equally everything else is just like normal logistic regression i.e we can fit multiple models, run Likelihood-Ratio Tests etc
+
+#Poisson and Cox Regression
+
+We are going to look at a different dataset now. This dataset is from the Whitehall study and looks at causes of death amongst civil servants.
+
+```{r Poisson Dataset, echo=TRUE}
+
+##This is the whitehall dataset from ASME
+whall <- read.csv( file = "whitehal.csv", header = TRUE, sep = ",")
+
+```
+
+##Setting up our time variables
+
+The package we are using for the Poisson and Cox Regression needs the dates in a particular format to work.
+
+Specifically it needs them in a 'decimal year' i.e 1982.145
+If our data isn't already like this then we set it up using the 'cal.yr' command.
+The cal.yr command wants a date as an input - so remember if your dates are stored as strings and not dates in the raw data then you need to convert them to a date and then to a decimal date. You can do this in one step.
+
+```{r Setting up time variables, echo=TRUE}
+
+class(whall$timein)
+#We see that the timein variable is currently a factor (i.e just recognisd as a bunch of characters), so we need to convert factor>data>decimal date. 
+
+whall$timein <- cal.yr(as.Date(whall$timein, format = "%d%b%Y"))
+whall$timeout <- cal.yr(as.Date(whall$timeout, format = "%d%b%Y"))
+whall$timebth <- cal.yr(as.Date(whall$timebth, format = "%d%b%Y"))
+```
+
+##Declaring our periods of follow-up: Making a lexis model
+We need to declare the way time is modelled when doing this kind of analysis.
+This is like STSET in STATA.
+
+
+That is we need to specify
+1) Entry point
+2) Exit point
+
+
+We may have multiple time scales - for example both Calendar Time and Chronological age.
+The general syntax is:
+
+```{r Example Lexis Syntax, eval=FALSE, include=TRUE}
+
+lexis_object <- Lexis( 
+  entry = list ( name_first_time_scale = variable_setting_that,
+                 name_second_time_scale = variable_setting_that),
+  exit = list (name_of_time_scale_we calculate_exit_against = variable_for exit),
+  exit.status = (where_we_define_the_outcome),
+  data = data_frame)
+```
+
+                       
+For example if we might be interested in time in follow-up and chronological age as time scales. So we might do:
+
+```{r Setting up a lexis model, echo=TRUE}
+lexis_model <- Lexis(entry = list("calendar_time"=timein, "age" = timein - timebth), exit = list("calendar_time" = timeout), exit.status = chd ==1, data = whall)
+#We define the beginning of calendar time in the study as the date in the 'timein' variable
+#We call time on this scale "calendar_time"
+#We define the beginning of the age-time scale as the difference between when you joined the study and your date of birth. We call this time scale "age"
+#Time out is on the same timescale as time in - i.e calendar_time
+```
+
+
+R is also happy if we just have a duration of follow-up as opposed to a Date of Entry and a Date of Exit. In that case we can just say:
+
+```{r Lexis Model with just duration, eval=FALSE, include=TRUE}
+
+lexis_model <- Lexis(exit = list("calendar_time" = duration), exit.status = died, data = dataset)
+##Here we specify the exit time as being the duration of follow-up
+##We haven't stated an entry time so R assumes it to be 0 - i.e people were followed up from time 0 for the duration of time specified as the exit time
+
+```
+
+##Key variables in the Lexis model
+When we make this model it creates several key variable we need to reference when running our Cox and Poisson models.
+
+'lex.dur' = duration of follow-up
+'lex.Xst' = Status of the individual at the end of each time block. For example in the above lexis model this is whether or not the event CHD occured in the any given time period.
+
+We will reference these variables when we run our poisson and cox regression models.
+
+##Making a rate table
+
+Once we have a lexis model it is easy to see crude rates and rates stratified by a variable
+
+The general syntax is:
+> rate_table <- rate(lexis_model, obs = lex.Xst, pyrs = lex.dur, print = stratifying_var)
+
+If we want we can give per 100 or 1,000 years by simply adjusting 'pyrs'
+> rate_table <- rate(lexis_model, obs = lex.Xst, pyrs = lex.dur/1000, print = stratifying_var)
+
+
+```{r Rate Tables, echo =TRUE}
+
+average_rate <- rate(lexis_model, obs = lex.Xst, pyrs = lex.dur/1000)
+#Show the overall rate of cardiovascular outcomes per 1,000 person years
+rate_by_grade <- rate(lexis_model, obs = lex.Xst, pyrs = lex.dur/1000, print = grade)
+#Show the rates of cardiovascular outcome by grade per 1,000 person years
+average_rate
+rate_by_grade
+
+```
+
+##Running a simple Poisson Regression
+We run a poisson regression essentially the same as a logistic regression.
+We use the same GLM command as before.
+
+1) Instead of setting 'family = binomial' we need to set 'family = poisson'
+
+2) We include an additional variable called offset. 
+This represents the fact that follow-up time is different for each person in the study (i.e it gives you a rate against person-time rather than a number of events / people).
+This variable is the log of the follow-up time in the lexis-model: 'log(lex.dur)'
+
+3) We set the outcome as whether lex.Xst occured (i.e did the event occur)
+
+The generic formula is
+> poisson_model <- glm(lex.Xst~offset(log(lex.dur))+indepdent_variable+independent_variable, data = lexis_dataframe, family = poisson)
+
+```{r Simple Poisson Regression, echo=TRUE}
+
+#Fit a model for HR of death from CHD against grade
+grade_model <- glm(lex.Xst~grade+offset(log(lex.dur)), data = lexis_model, family = poisson)
+#The outcome is lex.Xst - whatever we set as the outcome when we made our lexis dataset 
+#The offset is the log(lex.dur) - the log of duration of follow-up
+#We fit a poisson model 
+
+grade_ratios <- cbind(HR = exp(coef(grade_model)), exp(confint(grade_model)))
+#Just like in the Logistic model we take exponentials of the coefficients to get our Hazard Rations
+grade_model_out <- summary(grade_model) 
+grade_model_out <-cbind (grade_ratios, grade_model_out$coefficients)
+#We combine this all in to a nice table
+grade_model_out
+
+```
+
+##Lexis Expansions and time as a confounder.
+Time (for example age) is a key confounder so we need to be able to control for this.
+In STATA we would use STSPLIT to do this. We can do the same in R.
+
+We do this using:
+> expanded_lexis_model <- splitLexis(lexis_model, "time_scale_to_split_on", breaks = c(break1,break2,break3))
+
+```{r Lexis expansion, echo=TRUE}
+
+split_lexis_model <- splitLexis(lexis_model, breaks = c(40,50,55,60,65,70,75,80,90), time.scale = "age")
+#We say we want to split our lexis_model
+#We want to do this on our defined "age" time scale
+#We want the breaks to be at the listed points
+```
+
+
+Now we need to tell R we want to use those Time-Blocks as a variable in our regression.
+NB Compare to STATA -  In stata we cut the time and make it a new variable in one go with
+
+> stplit newvariable, at(timepoint,timepoint,timepoint)
+
+But each time we want to split on a new timescale in STATA we need to stset the data again and do a new 'stplit' command. 
+
+In R we declare all the timescales initially (in the lexis command), then we split each timeperiod and then make a new variable reflecting each split. The generic syntax is
+
+> expanded_model$block_name <- timeBand(expanded_model, "name_of_split", type = "factor")
+
+```{r Making a variable from a Lexis expansion, echo=TRUE}
+
+split_lexis_model$age_blocks <- timeBand(split_lexis_model, "age", type = "factor")
+#We make a new variable called age_blocks.
+#We used the splits we defined on the "age" time-scale for this
+#Make each segment of this time-scale an element of a categorical variable
+
+#We then remove any blank 'time-blocks' i.e segments with no observations
+#This is done by re-factoring the variable
+split_lexis_model$age_blocks <- factor(split_lexis_model$age_blocks)
+```
+
+##Running a poisson regression including a time-varying variable
+Now we can run the poisson regression with age (in blocks) as a variable just like in STATA.
+
+```{r Age adjusted Poisson Regression, echo=TRUE}
+age_grade_model <- glm(lex.Xst~factor(grade)+age_blocks+offset(log(lex.dur)), data = split_lexis_model, family = poisson)
+age_grade_ratios <- cbind(HR = exp(coef(age_grade_model)), exp(confint(age_grade_model)))
+age_grade_model_out <- summary(age_grade_model) 
+age_grade_model_out <-cbind (age_grade_ratios, age_grade_model_out$coefficients)
+age_grade_model_out
+
+#Now fit a model adjusting for the effect of changing age through follow-up time
+##NB Some of the hazard ratios are *10^1 - i.e age block 80-90, the HR is equivalent to 88.9
+
+```
+
+##Comparing Models
+
+Just like in logistic regression we can compare our two poisson models using 'lrtest'.
+Remember the two models need to be fittd on the same number of observations.
+This means both models need to be fitted AFTER the lexis expansion - so in the current example we would compare:
+Lexis Expanded Dataset - controlling for Age & Grade
+Lexis Expanded Dataset - controlling for Age Only
+The LRTEST would be whether Grade was associated having controlled for Age
+
+```{r Likelihood Ratio Test Poisson, echo=TRUE}
+
+age_model <- glm(lex.Xst~age_blocks+offset(log(lex.dur)), data = split_lexis_model, family = poisson)
+#Fit a model on the expanded dataset where only Age is an independent variable
+age_model_ratios <- cbind(HR = exp(coef(age_model)), exp(confint(age_model)))
+age_model_out <- summary(age_model) 
+age_model_out <-cbind (age_model_ratios, age_model_out$coefficients)
+age_model_out
+
+
+lrtest(age_model,age_grade_model)
+#Perform a likelihood test of the model with Age&Grade compared to the model with only Age
+
+```
+
+If we wanted to test if age was associated we would compare:
+Lexis Expanded Dataset - controlling for Age & Grade
+Lexis Expanded Dataset - controlling for Grade Only
+Note even though strictly we don't need to expand the dataset for the grade model (as its not a time varying factor) we need the two models to have the same number of observations so it does need to be run against the Lexis Expanded dataset
+
+##Cox Regression
+
+Cox Regression is done in a very similar fashion to all other models.
+We declare the outcome and follow-up time slightly differently than from in the poisson but otherwise things look very similar!
+
+The generic formula is:
+
+> cox_model <- coxph(Surv(lex.dur,lex.Xst)+indepdent_variable+independent_variable, data = lexis_dataframe)
+
+```{r Cox-Model, echo=TRUE}
+
+cox_lexis_model <- coxph(Surv(lex.dur,lex.Xst)~factor(grade),data = split_lexis_model)
+##Fit a cox model. 
+##The initial statement Surv(lex.dur,lex.Xst) says that the duration of follow-up is in lex.dur and the outcome variable in lex.Xst (as outlined above)
+
+cox_lexis_ratios <- cbind(HR = exp(coef(cox_lexis_model)), exp(confint(cox_lexis_model)))
+#As every other time we exponentiat the coefficients to get hazard ratios
+cox_lexis_out <- summary(cox_lexis_model)
+cox_lexis_out <- cbind(cox_lexis_ratios,cox_lexis_out$coefficients)
+#And we put everything in a nice table
+cox_lexis_out
+
+```
+
+Note that the poisson and the cox give very similar estimates of th impact of grade on the outcome.
+
+As in Poisson Regression we can compare two cox-models using 'lrtest' if we need to.
+Remember as always that both models must be performed on a dataset with the same number of observations - i.e after any lexis-expansion has been performed.
+
+#Correlated Outcomes
+
+We often have data that is correlated.
+For example
+1) Multiple episods of flu in a single individual
+2) Clustered-survey data - i.e individuals within households
+
+Commonly we use a random-effects model to adjust for this correlation.
+
+We do this using a very similar model to all previous ones.
+The general syntax for a clustered Logistic Regression is:
+
+> correlated_logistic <- glmer(DEPVAR~INDEPVAR + (1|CLUSTER_VAR),family = "binomial", data = data)
+#For example if we have individuals within households then CLUSTER_VAR would be the variable specifying which house they were in
+
+The general syntax for a clustered Poisson Regression (after Lexis setup as before is):
+
+> correlated_poisson <- glmer(lex.Xst~INDEPVAR + offset(log(lex.dur))+ (1|CLUSTER_VAR),family = "poisson", data = data)
+#For example if we have individuals followed over time with multiple episodes of infection, with one line in our dataframe per period of follow-up, then CLUSTER_VAR would be the variable identifying that person across each block of follow-up
+
+##Specifying the Clustering and getting the data out
+In both cases the key point in setting up the formula is the addition of:
+> +(1|CLUSTER_VAR)
+
+When we want to get out our odds ratios and confidence intervbals we have to specify that slightly diffrently than in a non-random-effects model
+
+> OR <- cbind(OR = exp(fixef(re_model)),exp(confint(re_model,parm="beta_")))
+##Rather than the co-efficients we want the Fixed-Effects for our Odds Ratios
+##And we want the confidence intervals specifcally for those rather than all the other variabls a RE-Model makes
+
+Otherwise everything is the same as all our other models
+
+##Random Effects Logistic Regression
+We are using the household TB dataset from ASME
+
+```{r RE-Logistic-Model, echo=TRUE}
+
+mantoux <- read.csv (file = "hhtb.csv", header = TRUE, sep = ",")
+
+#Read in data
+
+re_mantoux <- glmer(mantoux~factor(hiv)+ (1 | id),family = "binomial", data = mantoux)
+#Run a Random Effects model
+#Individuals share an index case which is designated by the 'id' variable
+#This therefore is the unit of clustering
+
+re_mantoux_OR <- cbind(OR = exp(fixef(re_mantoux)),exp(confint(re_mantoux,parm="beta_")))
+
+re_mantoux_out <- summary(re_mantoux)
+#We still want our P-Values and raw data just like before
+
+re_mantoux_out <- cbind (re_mantoux_OR, re_mantoux_out$coefficients)
+#Combine it all together
+re_mantoux_out
+
+```
+
+##Random Effects Poisson Regression
+
+We are using a dataset about childhood vaccines in PNG from ASME
+
+```{r RE-Poisson-Model, echo=TRUE}
+png <- read.csv (file = "pngnew.csv", header = TRUE, sep = ",")
+#Read in data
+
+
+png$timein <- cal.yr(as.Date(png$timein, format = "%d%b%Y"))
+png$timeout <- cal.yr(as.Date(png$timeout, format = "%d%b%Y"))
+#Convert dates in to decimal dates
+
+png_lexis <- Lexis(entry = list("calendar" = timein), exit = list("calendar" = timeout), exit.status = any, data = png)
+#Setup a lexis model
+
+re_png <- glmer(lex.Xst~factor(vacc)+offset(log(lex.dur))+(1|id), family = "poisson", data = png_lexis)
+#Multiple readings from the same invdividual
+#The ID for the individuals is in the 'id' variable
+#This therefore is the unit of clustering
+
+re_png_OR <- cbind(HR = exp(fixef(re_png)),exp(confint(re_png,parm="beta_")))
+##Rather than the co-efficients we want the Fixed-Effects for our Odds Ratios
+##And we want the confidence intervals specifcally for those rather than all the other variabls a RE-Model makes
+
+re_png_out <- summary(re_png)
+#We still want our P-Values and raw data just like before
+
+re_png_out <- cbind (re_png_OR, re_png_out$coefficients)
+#Combine it all together
+re_png_out
+
+```
+
+##Confirming there is clustering
+
+When we run a Random-Effects model we also want to see if whether there is or is not evidence of clustering. 
+
+STATA does this by looking to see if rho (logistic regression, measure of within cluster variation) or alpha (poisson, measure of within cluster variation) = zero. 
+
+It does this STATA runs a likelihood ratio test comparing the model with and without random-effects (where ro/alpha = 0).
+
+We can do the same by fitting a model without clustering and running an LRT comparing it to our RE-model. 
+
+```{r Looking for evidence of clustering, echo=TRUE}
+
+no_re_mantoux <- glm(mantoux~factor(hiv),family = "binomial", data = mantoux)
+lrtest(re_mantoux,no_re_mantoux)
+
+```
+
+The difference between the two models is not Zero and the p-value is highly suggestive that there is evidence of clustering
+
+#GGPLOT2
+
+##Basic elements of a GGPLOT
+The GGPLOT package makes much better graphs than the basic R package.
+This is a very brief introduction to the syntax of GGPLOT2.
+
+Everything in ggplot combines a similar group of elements to make its graphs.
+In any plot we specify
+1) Dataset
+2) A Co-ordinate system
+3) How to show the data points (ggplot calls these 'geoms')
+
+We add elements on top of one another to build up the plot.
+The first two elements are given together via the syntax
+> plot <- ggplot2 (dataset, aes(co-ordinate system))
+#Make something called plot. Take data from 'dataset' and define the way to show the data as statd by the co-ordinate system.
+
+There are a variety of co-ordinate systems.
+When our plot involves  a single variable (i.e age as a histograme) then we need to specify X =
+
+> plot <- ggplot2 (scabies, aes(x = age))
+#Look in the scabies dataframe - we are plotting age along the X-Axis
+
+If we want to stratify our plots by a factor we can do so by telling GGPLOT with 'fill'
+
+> plot <- ggplot2 (scabies, aes(x = age, fill = gender))
+#Stratify by Gender - i.e draw two histograms with different colours based on the variable gender
+
+When our plot involves two variables (i.e a scatter plot or a box-plot) then we specify X= and y =
+
+> plot <- ggplot2 (scabies, aes(x = house_inhabitants, y = room_cohabitation))
+#Look in the scabies dataframe - we are plotting number people in the house along the X-Axis and number of people sharing a room on the Y-Axis
+
+##Specifcying the type of graph - 'geoms'
+
+We then tell GGPLOT how to render the data - this is the geom.
+
+Some common geoms are:
+geom_point = scatterplot
+geom_histogram = histogram
+geom_boxplot
+
+We can specify specific values for the data-points ("geom") like colour:
+> + geom_point(aes(colour = factor(gender)))
+#Add to our plot by drawing each value as a point i.e make a scatter-plot
+#Set the colour of each datapoint based on the factor variable gender
+
+##Labels, Legends etc
+We can add labels using:
+> + labs (title = "Graph Title", x = "X-Axis Label", y = "Y-Axis Label")
+#Add to our plot by adding labels for axis etc
+
+##Splitting GGPLOT code across multiple lines 
+Sometimes to make the code easier to follow we split it across several lines.
+For example
+
+> plot <- ggplot2 (scabies, aes(x = house_inhabitants, y = room_cohabitation))+
+geom_point(aes(colour = factor(gender))) +
+labs (title = "House size and Room Cohabitation", x = "House size", y = "Room size")
+#Note we put a PLUS sign at the end of each line to tell R that the code is continuing
+
+##Example Plots with GGPLOT
+
+Here are some examples similar to the graphs we drew with basic R earlier.
+The aim is just to give a feel for how the plots are constructed.
+
+###GGPLOT Scatterplot
+
+```{r GGPLOT Scatter, echo=TRUE}
+
+gg_scatter <- ggplot (scabies, aes(x = house_inhabitants, y = room_cohabitation)) +
+#Two variable House size and room cohabitation
+  
+#NB I'm saving the plot under the name gg_scatter by saying gg_scatter <- X,Y,Z
+  geom_point(aes(colour = factor(gender))) +
+
+#I'm drawing a scatter plot and colouring dots based on gender  
+  labs(title = "House size vs Number people sharing a room", x ="House Size", y = "People sharing a room")
+
+#I'm giving some labels to the graph
+
+gg_scatter
+#Show the gg_scatter graph
+```
+
+###GGPLOT Histogram
+```{r GGPLOT Histogram, echo=TRUE}
+
+gg_histo <- ggplot (scabies, aes(x = age)) +
+  
+#I have a single variable age
+geom_histogram() +
+
+#With which I will draw a scatterplot  
+labs(title = "Distribution of age in study", y = "No. participants", x = "Age (yrs)")
+
+#I will give some axis and graph labels
+gg_histo
+```
+
+###GGPLOT Boxplot
+```{r GGPLOT Boxplot, echo=TRUE}
+
+gg_boxplot <- ggplot (scabies, aes(x = gender, y = age)) +
+
+#I have two variable Gender and Age
+  geom_boxplot(aes(colour = factor(gender))) +
+
+#I am drawing a box plot and colouring them in by age
+  labs(title = "Distribution of age by gender", y = "Age", x = "Gender")
+
+#I have some axis labels
+gg_boxplot
+```
+
+###Examples of powerful plotting with GGPLOT
+We can do really fancy things with GGPLOT like make multiple graphs in a single panel.
+We declare these using one of the "facet" options. For example we could draw age distribution histograms by village.
+```{r GGPLOT Facet Histogram, echo=TRUE}
+
+gg_histo_by_village <- ggplot (scabies, aes(x = age, fill = gender)) +
+
+#I have only one co-ordinate x = age
+#Stratifying on = gender; i.e fill in  colour based on  value in gender
+  geom_histogram(breaks = seq(0,80, by = 2)) +
+
+#I'm plotting a histogram. I've divided the data between 0 to 80 it to blocks 5 years wide.
+  labs(title = "Distribution of age in study", y = "No. participants", x = "Age (yrs)")+
+
+#I've given some labels
+  facet_wrap("Village")
+
+#I've broken the data down in to several facets based on the village
+gg_histo_by_village
+
+```
